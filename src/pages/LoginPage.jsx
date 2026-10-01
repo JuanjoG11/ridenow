@@ -53,6 +53,24 @@ export default function LoginPage() {
     }
   }
 
+  const quickLoginAs = async (userData) => {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await login({ email: userData.email, password: 'any' })
+      const { data: prof } = await profilesDB.get(res.user?.id)
+      setLoading(false)
+      if (prof?.role) {
+        navigate('/home', { replace: true })
+      } else {
+        navigate('/role-select', { replace: true })
+      }
+    } catch (err) {
+      setLoading(false)
+      setError('Error al iniciar sesión.')
+    }
+  }
+
   return (
     <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', background: '#fff', maxWidth: 430, margin: '0 auto' }}>
       <div style={{
@@ -69,12 +87,12 @@ export default function LoginPage() {
           <span style={{ fontSize: 36 }}>👋</span>
           <div>
             <h1 style={{ color: '#fff', fontSize: 26, fontWeight: 800, letterSpacing: '-0.03em' }}>¡Hola de nuevo!</h1>
-            <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 14, marginTop: 2 }}>Inicia sesión con tu cuenta Supabase</p>
+            <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 14, marginTop: 2 }}>Inicia sesión con tu cuenta</p>
           </div>
         </div>
       </div>
 
-      <form onSubmit={handleLogin} style={{ flex: 1, padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 20, animation: 'fadeInUp 0.4s ease' }}>
+      <form onSubmit={handleLogin} style={{ flex: 1, padding: '28px 24px', display: 'flex', flexDirection: 'column', gap: 18, animation: 'fadeInUp 0.4s ease' }}>
         <Input label="Correo electrónico" type="email" placeholder="tu@correo.com" icon={Mail} value={form.email} onChange={set('email')} />
         <Input label="Contraseña" type={showPass ? 'text' : 'password'} placeholder="••••••••"
           icon={Lock} rightIcon={showPass ? EyeOff : Eye} onRightIconClick={() => setShowPass(v => !v)}
@@ -88,7 +106,48 @@ export default function LoginPage() {
 
         <Button type="submit" fullWidth size="lg" loading={loading}>Iniciar sesión</Button>
 
-        <div style={{ textAlign: 'center' }}>
+        {/* Separador de Acceso Directo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '6px 0 2px' }}>
+          <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            ⚡ Acceso Rápido Directo
+          </span>
+          <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => quickLoginAs({ email: 'manuelaarangoosorio28@gmail.com' })}
+          style={{
+            padding: '12px 14px', borderRadius: 14, border: '1.5px solid #bfdbfe', background: '#eff6ff',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer',
+            textAlign: 'left', transition: 'all 0.2s',
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: '#1e40af' }}>🚗 Entrar como Manuela Arango</div>
+            <div style={{ fontSize: 12, color: '#3b82f6' }}>Conductora • Areandina</div>
+          </div>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#2563eb', background: '#dbeafe', padding: '4px 10px', borderRadius: 99 }}>Entrar ya →</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => quickLoginAs({ email: 'juan@utp.edu.co' })}
+          style={{
+            padding: '12px 14px', borderRadius: 14, border: '1.5px solid #e2e8f0', background: '#f8fafc',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer',
+            textAlign: 'left', transition: 'all 0.2s',
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: '#334155' }}>🎓 Entrar como Juan Gutiérrez</div>
+            <div style={{ fontSize: 12, color: '#64748b' }}>Estudiante • UTP</div>
+          </div>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#475569', background: '#e2e8f0', padding: '4px 10px', borderRadius: 99 }}>Entrar ya →</span>
+        </button>
+
+        <div style={{ textAlign: 'center', marginTop: 6 }}>
           <span style={{ fontSize: 14, color: '#9ca3af' }}>¿No tienes cuenta? </span>
           <button type="button" onClick={() => navigate('/register')}
             style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
