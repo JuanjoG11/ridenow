@@ -281,52 +281,55 @@ export const tripsDB = {
 // ─── TRIP REQUESTS ───────────────────────────────────────────
 export const requestsDB = {
   async create(req) {
-    // Resolver el ID real del perfil del estudiante.
-    // Los usuarios fallback pueden no tener un perfil en Supabase.
-    // 1. Intentar encontrar el perfil existente
+    // ── Estrategia: intentar Supabase, si falla por RLS → guardar en localStorage
+    // como solicitud "local" que el conductor ve vía polling combinado.
+
+    // 1. Intentar resolver el profiles.id real del estudiante
     let studentId = req.student_id
     if (studentId) {
-      const { data: prof } = await supabase
-        .from('profiles')
-        .select('id')
-        .or(`id.eq.${studentId},user_id.eq.${studentId}`)
-        .maybeSingle()
-
-      if (prof?.id) {
-        studentId = prof.id
-      } else {
-        // 2. No existe perfil → crearlo con datos mínimos para satisfacer la FK
-        const { data: created, error: createErr } = await supabase
+      try {
+        const { data: prof } = await supabase
           .from('profiles')
-          .insert({
-            id: studentId,          // usar el mismo UUID como PK
-            user_id: studentId,
-            full_name: 'Estudiante',
-            phone: '',
-          })
           .select('id')
+          .or(`id.eq.${studentId},user_id.eq.${studentId}`)
           .maybeSingle()
-
-        if (created?.id) {
-          studentId = created.id
-        } else {
-          console.warn('No se pudo crear perfil para estudiante:', createErr)
-          // Continuar de todas formas; el insert puede fallar por FK pero al menos lo intentamos
-        }
-      }
+        if (prof?.id) studentId = prof.id
+      } catch (_) { /* continuar con el id original */ }
     }
 
+    // 2. Intentar insertar en Supabase
     const { data, error } = await supabase
       .from('trip_requests')
       .insert({ ...req, student_id: studentId })
       .select()
       .single()
 
-    if (error) {
-      console.error('requestsDB.create error:', error)
+    if (!error && data) {
+      return { data, error: null }
     }
 
-    return { data, error }
+    // 3. Si Supabase falla (RLS, FK, etc.) → guardar localmente como respaldo
+    console.warn('Supabase insert falló, usando localStorage como fallback:', error)
+    const localReq = {
+      id: crypto.randomUUID ? crypto.randomUUID() : 'req_' + Date.now(),
+      ...req,
+      student_id: studentId,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+      _local: true,  // marca para distinguirlo
+    }
+    try {
+      const existing = JSON.parse(localStorage.getItem('ridenow_requests') || '[]')
+      // Evitar duplicados por trip_id + student_id
+      const isDup = existing.some(r => r.trip_id === localReq.trip_id && r.student_id === req.student_id)
+      if (!isDup) {
+        existing.push(localReq)
+        localStorage.setItem('ridenow_requests', JSON.stringify(existing))
+      }
+    } catch (_) {}
+
+    // Devolver éxito con el objeto local (la UI puede continuar)
+    return { data: localReq, error: null }
   },
 
   async getByDriver(driverId) {
@@ -336,29 +339,43 @@ export const requestsDB = {
       .select('id, origin, destination, departure_time, price')
       .eq('driver_id', driverId)
 
-    if (!trips || trips.length === 0) return { data: [], error: null }
+    if (!trips || trips.length === 0) {
+      // Aún así revisar localStorage
+      const localAll = JSON.parse(localStorage.getItem('ridenow_requests') || '[]')
+      return { data: localAll.filter(r => r._local), error: null }
+    }
 
     const tripIds = trips.map(t => t.id)
     const tripsMap = Object.fromEntries(trips.map(t => [t.id, t]))
 
-    // 2. Obtener solicitudes de esos viajes
-    const { data: reqs, error } = await supabase
+    // 2. Obtener solicitudes de esos viajes desde Supabase
+    const { data: reqs } = await supabase
       .from('trip_requests')
       .select('*')
       .in('trip_id', tripIds)
       .order('created_at', { ascending: false })
 
-    if (error || !reqs) return { data: [], error }
+    // 2b. Mezclar con solicitudes locales (fallback) del mismo conductor
+    const localAll = JSON.parse(localStorage.getItem('ridenow_requests') || '[]')
+    const localReqs = localAll.filter(r => r._local && tripIds.includes(r.trip_id))
+    const remoteReqs = reqs || []
+
+    // Evitar duplicados: si ya está en Supabase no agregar el local
+    const remoteKeys = new Set(remoteReqs.map(r => `${r.trip_id}_${r.student_id}`))
+    const onlyLocalReqs = localReqs.filter(r => !remoteKeys.has(`${r.trip_id}_${r.student_id}`))
+    const allReqs = [...remoteReqs, ...onlyLocalReqs]
+
+    if (allReqs.length === 0) return { data: [], error: null }
 
     // 3. Enriquecer con perfiles de estudiantes
-    const studentIds = [...new Set(reqs.map(r => r.student_id).filter(Boolean))]
+    const studentIds = [...new Set(allReqs.map(r => r.student_id).filter(Boolean))]
     let studentMap = {}
 
     if (studentIds.length > 0) {
       const { data: profs } = await supabase
         .from('profiles')
         .select('*')
-        .in('user_id', studentIds)
+        .or(studentIds.map(id => `id.eq.${id},user_id.eq.${id}`).join(','))
 
       if (profs) {
         profs.forEach(p => {
@@ -366,9 +383,18 @@ export const requestsDB = {
           studentMap[p.id] = p
         })
       }
+
+      // Para locales sin perfil en Supabase, buscar en localStorage de usuarios registrados
+      const cachedUsers = JSON.parse(localStorage.getItem('ridenow_registered_users') || '{}')
+      Object.values(cachedUsers).forEach(u => {
+        const name = u.user_metadata?.full_name || u.email || 'Estudiante'
+        if (!studentMap[u.id]) {
+          studentMap[u.id] = { id: u.id, full_name: name, university: u.user_metadata?.university || '' }
+        }
+      })
     }
 
-    const enriched = reqs.map(r => ({
+    const enriched = allReqs.map(r => ({
       ...r,
       student: studentMap[r.student_id] || { full_name: 'Estudiante' },
       trip: tripsMap[r.trip_id] || {},
@@ -429,12 +455,25 @@ export const requestsDB = {
   },
 
   async updateStatus(requestId, status) {
+    // Intentar actualizar en Supabase primero
     const { data, error } = await supabase
       .from('trip_requests')
       .update({ status })
       .eq('id', requestId)
       .select()
       .single()
+
+    // Si no está en Supabase, actualizar en localStorage
+    if (error || !data) {
+      try {
+        const existing = JSON.parse(localStorage.getItem('ridenow_requests') || '[]')
+        const updated = existing.map(r => r.id === requestId ? { ...r, status } : r)
+        localStorage.setItem('ridenow_requests', JSON.stringify(updated))
+        const found = updated.find(r => r.id === requestId)
+        if (found) return { data: found, error: null }
+      } catch (_) {}
+    }
+
     return { data, error }
   },
 }

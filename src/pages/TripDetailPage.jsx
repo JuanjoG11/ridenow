@@ -378,8 +378,7 @@ export default function TripDetailPage() {
                       color: p.status === 'accepted' ? '#15803d' : '#854d0e',
                     }}>
                       {p.status === 'accepted' ? '✓ Confirmado' : '⏳ Pendiente'}
-                    </span>
-                  </div>
+                    </span>                  </div>
                 )
               })}
               <div style={{ marginTop: 4, padding: '8px 12px', background: '#f0fdf4', borderRadius: 10, border: '1px solid #bbf7d0' }}>

@@ -116,7 +116,7 @@ export default function HistoryPage() {
                       <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginTop: 5 }}>{to}</p>
                     </div>
                     <Badge color={status === 'accepted' || status === 'completed' || status === 'available' ? 'green' : 'red'}>
-                      {status}
+                      {{ available: 'Disponible', full: 'Lleno', in_progress: 'En curso', completed: 'Completado', cancelled: 'Cancelado', pending: 'Pendiente', accepted: 'Aceptado', rejected: 'Rechazado' }[status] || status}
                     </Badge>
                   </div>
                 </div>

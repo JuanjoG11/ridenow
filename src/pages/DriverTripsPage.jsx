@@ -117,7 +117,9 @@ export default function DriverTripsPage() {
                   <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
                     <Badge color="blue"><Clock size={10} /> {t.departure_time}</Badge>
                     <Badge color="gray">👤 {t.available_seats} asientos</Badge>
-                    <Badge color={t.status === 'available' ? 'green' : 'gray'}>{t.status}</Badge>
+                    <Badge color={t.status === 'available' ? 'green' : 'gray'}>
+                      {{ available: 'Disponible', full: 'Lleno', in_progress: 'En curso', completed: 'Completado', cancelled: 'Cancelado' }[t.status] || t.status}
+                    </Badge>
                   </div>
                 </div>
               ))}
