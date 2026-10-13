@@ -99,10 +99,12 @@ export default function TripDetailPage() {
 
     setLoading(false)
 
-    // Error de duplicado (unique constraint): ya existe la solicitud, continuar
+    // Error de duplicado (unique constraint): ya existe la solicitud, continuar igual
     const isDuplicate = reqError?.code === '23505' || reqError?.message?.includes('duplicate')
     if (reqError && !isDuplicate) {
-      setError('No se pudo enviar la solicitud al conductor. Intenta de nuevo.')
+      // Mostrar el mensaje técnico en consola para debug
+      console.error('Error al crear solicitud:', reqError)
+      setError(`No se pudo enviar la solicitud. (${reqError.code || reqError.message || 'error desconocido'})`)
       return
     }
 

@@ -282,8 +282,8 @@ export const tripsDB = {
 export const requestsDB = {
   async create(req) {
     // Resolver el ID real del perfil del estudiante.
-    // Los usuarios fallback tienen user.id que puede ser un UUID no registrado
-    // en auth.users, pero sí debe existir en profiles. Buscamos el profiles.id real.
+    // Los usuarios fallback pueden no tener un perfil en Supabase.
+    // 1. Intentar encontrar el perfil existente
     let studentId = req.student_id
     if (studentId) {
       const { data: prof } = await supabase
@@ -291,8 +291,28 @@ export const requestsDB = {
         .select('id')
         .or(`id.eq.${studentId},user_id.eq.${studentId}`)
         .maybeSingle()
+
       if (prof?.id) {
         studentId = prof.id
+      } else {
+        // 2. No existe perfil → crearlo con datos mínimos para satisfacer la FK
+        const { data: created, error: createErr } = await supabase
+          .from('profiles')
+          .insert({
+            id: studentId,          // usar el mismo UUID como PK
+            user_id: studentId,
+            full_name: 'Estudiante',
+            phone: '',
+          })
+          .select('id')
+          .maybeSingle()
+
+        if (created?.id) {
+          studentId = created.id
+        } else {
+          console.warn('No se pudo crear perfil para estudiante:', createErr)
+          // Continuar de todas formas; el insert puede fallar por FK pero al menos lo intentamos
+        }
       }
     }
 
@@ -301,6 +321,11 @@ export const requestsDB = {
       .insert({ ...req, student_id: studentId })
       .select()
       .single()
+
+    if (error) {
+      console.error('requestsDB.create error:', error)
+    }
+
     return { data, error }
   },
 
