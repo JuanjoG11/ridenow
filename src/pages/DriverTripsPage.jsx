@@ -35,6 +35,13 @@ export default function DriverTripsPage() {
 
   useEffect(() => {
     loadDriverData()
+
+    // Polling automático cada 10 segundos para detectar nuevas solicitudes
+    const interval = setInterval(() => {
+      loadDriverData()
+    }, 10000)
+
+    return () => clearInterval(interval)
   }, [user])
 
   const accept = async (id) => {

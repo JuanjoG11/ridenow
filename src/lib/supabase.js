@@ -181,6 +181,8 @@ export const tripsDB = {
     
     if (error || !data) return { data: [], error }
 
+    const tripIds = data.map(t => t.id)
+
     // Enriquecer con perfiles de conductores
     const driverIds = [...new Set(data.map(t => t.driver_id).filter(Boolean))]
     let profilesMap = {}
@@ -211,10 +213,46 @@ export const tripsDB = {
       }
     }
 
+    // Enriquecer con solicitudes de estudiantes (pending + accepted)
+    let requestsMap = {}  // tripId -> [{ student_id, status, student: { full_name } }]
+    if (tripIds.length > 0) {
+      const { data: reqs } = await supabase
+        .from('trip_requests')
+        .select('id, trip_id, student_id, status')
+        .in('trip_id', tripIds)
+        .in('status', ['pending', 'accepted'])
+
+      if (reqs && reqs.length > 0) {
+        // Perfiles de estudiantes
+        const studentIds = [...new Set(reqs.map(r => r.student_id).filter(Boolean))]
+        let studentMap = {}
+        if (studentIds.length > 0) {
+          const { data: studs } = await supabase
+            .from('profiles')
+            .select('id, user_id, full_name')
+            .or(studentIds.map(id => `id.eq.${id},user_id.eq.${id}`).join(','))
+          if (studs) {
+            studs.forEach(s => {
+              studentMap[s.id] = s
+              if (s.user_id) studentMap[s.user_id] = s
+            })
+          }
+        }
+        reqs.forEach(r => {
+          if (!requestsMap[r.trip_id]) requestsMap[r.trip_id] = []
+          requestsMap[r.trip_id].push({
+            ...r,
+            student: studentMap[r.student_id] || { full_name: 'Estudiante' },
+          })
+        })
+      }
+    }
+
     const enriched = data.map(t => ({
       ...t,
       profiles: profilesMap[t.driver_id] || { full_name: 'Conductor' },
       vehicle: vehiclesMap[t.driver_id] || null,
+      passengers: requestsMap[t.id] || [],
     }))
 
     return { data: enriched, error: null }
@@ -243,9 +281,24 @@ export const tripsDB = {
 // ─── TRIP REQUESTS ───────────────────────────────────────────
 export const requestsDB = {
   async create(req) {
+    // Resolver el ID real del perfil del estudiante.
+    // Los usuarios fallback tienen user.id que puede ser un UUID no registrado
+    // en auth.users, pero sí debe existir en profiles. Buscamos el profiles.id real.
+    let studentId = req.student_id
+    if (studentId) {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('id')
+        .or(`id.eq.${studentId},user_id.eq.${studentId}`)
+        .maybeSingle()
+      if (prof?.id) {
+        studentId = prof.id
+      }
+    }
+
     const { data, error } = await supabase
       .from('trip_requests')
-      .insert(req)
+      .insert({ ...req, student_id: studentId })
       .select()
       .single()
     return { data, error }

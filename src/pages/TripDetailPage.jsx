@@ -5,7 +5,7 @@ import Button from '../components/ui/Button'
 import Avatar from '../components/ui/Avatar'
 import Badge from '../components/ui/Badge'
 import { useApp } from '../context/AppContext'
-import { tripsDB, requestsDB, profilesDB, vehiclesDB } from '../lib/supabase'
+import { tripsDB, requestsDB, profilesDB, vehiclesDB, supabase } from '../lib/supabase'
 
 const PAYMENT_METHODS = [
   { id: 'cash', label: 'Efectivo', icon: '💵', desc: 'Pagas al llegar al destino' },
@@ -22,11 +22,32 @@ export default function TripDetailPage() {
   const [trip, setTrip] = useState(location.state?.trip || null)
   const [driver, setDriver] = useState(location.state?.trip?.profiles || null)
   const [vehicle, setVehicle] = useState(location.state?.trip?.vehicle || null)
+  const [passengers, setPassengers] = useState(location.state?.trip?.passengers || [])
   const [payment, setPayment] = useState('cash')
   const [travelType, setTravelType] = useState('solo')
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  // Carga (o recarga) las solicitudes activas del viaje
+  const loadPassengers = async (tripId) => {
+    if (!tripId) return
+    const { data: reqs } = await supabase
+      .from('trip_requests')
+      .select('id, student_id, status')
+      .eq('trip_id', tripId)
+      .in('status', ['pending', 'accepted'])
+    if (!reqs || reqs.length === 0) { setPassengers([]); return }
+
+    const studentIds = [...new Set(reqs.map(r => r.student_id).filter(Boolean))]
+    const { data: profs } = await supabase
+      .from('profiles')
+      .select('id, user_id, full_name')
+      .or(studentIds.map(sid => `id.eq.${sid},user_id.eq.${sid}`).join(','))
+    const profMap = {}
+    if (profs) profs.forEach(p => { profMap[p.id] = p; if (p.user_id) profMap[p.user_id] = p })
+    setPassengers(reqs.map(r => ({ ...r, student: profMap[r.student_id] || { full_name: 'Estudiante' } })))
+  }
 
   useEffect(() => {
     if (!trip && id) {
@@ -39,8 +60,11 @@ export default function TripDetailPage() {
           ])
           setDriver(profRes.data || { full_name: 'Conductor' })
           setVehicle(vehRes.data || null)
+          loadPassengers(data.id)
         }
       })
+    } else if (trip?.id) {
+      loadPassengers(trip.id)
     }
   }, [id, trip])
 
@@ -58,53 +82,45 @@ export default function TripDetailPage() {
       setError('Debes iniciar sesión para solicitar.')
       return
     }
+    if (!trip?.id) {
+      setError('No se pudo identificar el viaje. Vuelve atrás e intenta de nuevo.')
+      return
+    }
     setLoading(true)
     setError('')
 
-    try {
-      if (trip?.id) {
-        await requestsDB.create({
-          trip_id: trip.id,
-          student_id: user.id,
-          travel_type: travelType,
-          payment: payment,
-          status: 'pending',
-        })
-      }
+    const { data: reqData, error: reqError } = await requestsDB.create({
+      trip_id: trip.id,
+      student_id: user.id,
+      travel_type: travelType,
+      payment: payment,
+      status: 'pending',
+    })
 
-      setLoading(false)
-      navigate('/trip-active', {
-        state: {
-          trip: {
-            ...trip,
-            driver: driverName,
-            from: origin,
-            to: destination,
-            time: depTime,
-            price: price,
-            vehicle: vehicleText,
-            plate: vehiclePlate,
-          },
-        },
-      })
-    } catch (err) {
-      setLoading(false)
-      // Si ya solicitó o error de duplicado, igual permitir ver estado activo
-      navigate('/trip-active', {
-        state: {
-          trip: {
-            ...trip,
-            driver: driverName,
-            from: origin,
-            to: destination,
-            time: depTime,
-            price: price,
-            vehicle: vehicleText,
-            plate: vehiclePlate,
-          },
-        },
-      })
+    setLoading(false)
+
+    // Error de duplicado (unique constraint): ya existe la solicitud, continuar
+    const isDuplicate = reqError?.code === '23505' || reqError?.message?.includes('duplicate')
+    if (reqError && !isDuplicate) {
+      setError('No se pudo enviar la solicitud al conductor. Intenta de nuevo.')
+      return
     }
+
+    navigate('/trip-active', {
+      state: {
+        trip: {
+          ...trip,
+          requestId: reqData?.id,
+          driver: driverName,
+          from: origin,
+          to: destination,
+          time: depTime,
+          price: price,
+          vehicle: vehicleText,
+          plate: vehiclePlate,
+        },
+      },
+    })
   }
 
   if (step === 2) {
@@ -320,6 +336,57 @@ export default function TripDetailPage() {
               </label>
             ))}
           </div>
+        </div>
+
+        {/* Pasajeros que ya se unieron */}
+        <div style={{ background: '#fff', borderRadius: 20, padding: '18px 20px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)' }}>
+          <p style={{ fontSize: 12, fontWeight: 700, color: '#9ca3af', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 12 }}>
+            Viajeros en este viaje
+          </p>
+          {passengers.length === 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' }}>
+              <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>👤</div>
+              <div>
+                <p style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>Nadie se ha unido aún</p>
+                <p style={{ fontSize: 12, color: '#9ca3af', marginTop: 1 }}>¡Sé el primero en solicitar este viaje!</p>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {passengers.map((p, i) => {
+                const name = p.student?.full_name || 'Estudiante'
+                const colors = ['#2563eb', '#16a34a', '#9333ea', '#dc2626', '#ea580c']
+                const bg = colors[i % colors.length]
+                return (
+                  <div key={p.id || i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{
+                      width: 38, height: 38, borderRadius: '50%', background: bg,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 15, fontWeight: 800, color: '#fff', flexShrink: 0,
+                    }}>
+                      {name.charAt(0).toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>{name}</p>
+                      <p style={{ fontSize: 12, color: '#9ca3af' }}>{p.student?.university || 'Universitario'}</p>
+                    </div>
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 8,
+                      background: p.status === 'accepted' ? '#dcfce7' : '#fef9c3',
+                      color: p.status === 'accepted' ? '#15803d' : '#854d0e',
+                    }}>
+                      {p.status === 'accepted' ? '✓ Confirmado' : '⏳ Pendiente'}
+                    </span>
+                  </div>
+                )
+              })}
+              <div style={{ marginTop: 4, padding: '8px 12px', background: '#f0fdf4', borderRadius: 10, border: '1px solid #bbf7d0' }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: '#16a34a', textAlign: 'center' }}>
+                  👥 {passengers.length} estudiante{passengers.length !== 1 ? 's' : ''} ya {passengers.length !== 1 ? 'se unieron' : 'se unió'} · {seats} asiento{seats !== 1 ? 's' : ''} disponible{seats !== 1 ? 's' : ''}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         <Button fullWidth size="lg" onClick={() => setStep(2)}>

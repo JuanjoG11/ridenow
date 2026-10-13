@@ -101,6 +101,12 @@ export default function SearchPage() {
 
 function TripCard({ trip, onClick }) {
   const driverName = trip.profiles?.full_name || 'Conductor'
+  const passengers = trip.passengers || []
+  const passengerCount = passengers.length
+  // Mostrar máx. 3 avatares
+  const visiblePassengers = passengers.slice(0, 3)
+  const extra = passengerCount - visiblePassengers.length
+
   return (
     <div onClick={onClick} style={{
       background: '#fff', borderRadius: 20, padding: '18px',
@@ -118,6 +124,7 @@ function TripCard({ trip, onClick }) {
             <p style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>{driverName}</p>
             <span style={{ fontSize: 16, fontWeight: 800, color: '#2563eb' }}>${(trip.price || 0).toLocaleString()}</span>
           </div>
+
           <div style={{ marginTop: 10, background: '#f8fafc', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e' }} />
@@ -133,6 +140,60 @@ function TripCard({ trip, onClick }) {
               <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 5 }}>{trip.available_seats} asientos</p>
             </div>
           </div>
+
+          {/* Estudiantes que ya se unieron */}
+          {passengerCount > 0 ? (
+            <div style={{
+              marginTop: 10, display: 'flex', alignItems: 'center', gap: 8,
+              background: '#f0fdf4', borderRadius: 10, padding: '8px 12px',
+              border: '1px solid #bbf7d0',
+            }}>
+              {/* Avatares apilados */}
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                {visiblePassengers.map((p, i) => (
+                  <div key={p.id || i} style={{
+                    marginLeft: i === 0 ? 0 : -8,
+                    width: 26, height: 26, borderRadius: '50%',
+                    background: `hsl(${(i * 80 + 200) % 360}, 65%, 55%)`,
+                    border: '2px solid #fff',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 10, fontWeight: 800, color: '#fff',
+                    zIndex: visiblePassengers.length - i,
+                    position: 'relative',
+                  }}>
+                    {(p.student?.full_name || 'E').charAt(0).toUpperCase()}
+                  </div>
+                ))}
+                {extra > 0 && (
+                  <div style={{
+                    marginLeft: -8, width: 26, height: 26, borderRadius: '50%',
+                    background: '#d1d5db', border: '2px solid #fff',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 9, fontWeight: 800, color: '#374151', position: 'relative',
+                  }}>
+                    +{extra}
+                  </div>
+                )}
+              </div>
+              <p style={{ fontSize: 12, fontWeight: 600, color: '#16a34a', flex: 1 }}>
+                {passengerCount === 1
+                  ? '1 estudiante ya se unió'
+                  : `${passengerCount} estudiantes ya se unieron`}
+              </p>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', background: '#dcfce7', borderRadius: 6, padding: '2px 7px' }}>
+                ¡Únete!
+              </span>
+            </div>
+          ) : (
+            <div style={{
+              marginTop: 10, display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 12px', background: '#eff6ff', borderRadius: 10,
+              border: '1px solid #bfdbfe',
+            }}>
+              <Users size={13} color="#3b82f6" />
+              <p style={{ fontSize: 12, color: '#3b82f6', fontWeight: 600 }}>Sé el primero en unirte</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
